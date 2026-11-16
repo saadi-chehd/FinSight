@@ -1,0 +1,22 @@
+{
+  "is_synthetic": true,
+  "generator_version": "FS1",
+  "seed": 20261018,
+  "start_date": "2024-01-01",
+  "end_date": "2025-12-31",
+  "currency": "USD",
+  "amount_scale": 2,
+  "sme_count": 3,
+  "opening_balance_count": 3,
+  "invoice_count": 942,
+  "transaction_count": 2514,
+  "linked_payment_count": 932,
+  "daily_row_count": 2193,
+  "sha256": {
+    "daily_cash_flow.csv": "156972e728f9cec16ddd5e5df3b82ba357c5efc57273bf46852fd06763807a3e",
+    "invoices.csv": "cba70e7400e6a1861cf1bb6691da97883fb48ad1fd5d698721532f09492e3860",
+    "opening_balances.csv": "dc6ae4377a1966304afa3e1c69c026fa1d0d3e51bb09967a2e3b82f13c6e0880",
+    "smes.csv": "99af59d892e8be8042a627e6e3101ca49fb1af1edb55d898feffd5e353b11000",
+    "transactions.csv": "0d5fa6e100cece72a25057a3dafdffb76cddb8793463fb72a7985ed7d8fd73e8"
+  }
+}

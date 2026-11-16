@@ -1,0 +1,298 @@
+{
+  "baselines": {
+    "naive": "y_hat(t+h|t) = y(t)",
+    "weekly_seasonal": "y_hat(t+h|t) = y(t+h-7*ceil(h/7)); repeat the last observed week"
+  },
+  "experiment_version": "CB1",
+  "horizon_days": [
+    7,
+    30
+  ],
+  "input": {
+    "csv_sha256": {
+      "daily_cash_flow.csv": "156972e728f9cec16ddd5e5df3b82ba357c5efc57273bf46852fd06763807a3e",
+      "invoices.csv": "cba70e7400e6a1861cf1bb6691da97883fb48ad1fd5d698721532f09492e3860",
+      "opening_balances.csv": "dc6ae4377a1966304afa3e1c69c026fa1d0d3e51bb09967a2e3b82f13c6e0880",
+      "smes.csv": "99af59d892e8be8042a627e6e3101ca49fb1af1edb55d898feffd5e353b11000",
+      "transactions.csv": "0d5fa6e100cece72a25057a3dafdffb76cddb8793463fb72a7985ed7d8fd73e8"
+    },
+    "end": "2025-12-31",
+    "generator_version": "FS1",
+    "manifest_sha256": "d8289ea0e5f3b622f156c30f5cb372cad556688c58ea64068cc97781ac64b15e",
+    "seed": 20261018,
+    "start": "2024-01-01"
+  },
+  "is_synthetic": true,
+  "metrics": [
+    {
+      "baseline": "naive",
+      "company_key": "FS1-20261018-A",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "1394.519821",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "1765.955125",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "FS1-20261018-B",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "2664.837589",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "3338.981145",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "FS1-20261018-C",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "2396.454732",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "2990.488905",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "ALL",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "2151.937381",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 1008,
+      "rmse": "2781.511369",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "FS1-20261018-A",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "1394.519821",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "1765.955125",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "FS1-20261018-B",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "2664.837589",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "3338.981145",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "FS1-20261018-C",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "2396.454732",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "2990.488905",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "ALL",
+      "currency": "USD",
+      "horizon_days": 7,
+      "mae": "2151.937381",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 1008,
+      "rmse": "2781.511369",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "FS1-20261018-A",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "3921.773601",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "4507.589325",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "FS1-20261018-B",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "6128.518482",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "7454.321146",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "FS1-20261018-C",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "6833.750238",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 336,
+      "rmse": "7555.169726",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "naive",
+      "company_key": "ALL",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "5628.014107",
+      "mae_delta_vs_naive": "0.000000",
+      "mae_improvement_pct": "0.000000",
+      "n": 1008,
+      "rmse": "6657.473366",
+      "rmse_delta_vs_naive": "0.000000",
+      "rmse_improvement_pct": "0.000000"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "FS1-20261018-A",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "4581.444167",
+      "mae_delta_vs_naive": "659.670565",
+      "mae_improvement_pct": "-16.820720",
+      "n": 336,
+      "rmse": "5163.023213",
+      "rmse_delta_vs_naive": "655.433889",
+      "rmse_improvement_pct": "-14.540674"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "FS1-20261018-B",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "7140.270417",
+      "mae_delta_vs_naive": "1011.751935",
+      "mae_improvement_pct": "-16.508915",
+      "n": 336,
+      "rmse": "8499.538388",
+      "rmse_delta_vs_naive": "1045.217241",
+      "rmse_improvement_pct": "-14.021629"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "FS1-20261018-C",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "7993.341815",
+      "mae_delta_vs_naive": "1159.591577",
+      "mae_improvement_pct": "-16.968598",
+      "n": 336,
+      "rmse": "8784.187413",
+      "rmse_delta_vs_naive": "1229.017687",
+      "rmse_improvement_pct": "-16.267241"
+    },
+    {
+      "baseline": "weekly_seasonal",
+      "company_key": "ALL",
+      "currency": "USD",
+      "horizon_days": 30,
+      "mae": "6571.685466",
+      "mae_delta_vs_naive": "943.671359",
+      "mae_improvement_pct": "-16.767395",
+      "n": 1008,
+      "rmse": "7660.742131",
+      "rmse_delta_vs_naive": "1003.268765",
+      "rmse_improvement_pct": "-15.069813"
+    }
+  ],
+  "prediction_row_count": 4032,
+  "protocol": {
+    "candidate_origin_count": 336,
+    "common_origin_count_per_sme": 336,
+    "common_origin_end": "2025-12-01",
+    "common_origin_start": "2024-12-31",
+    "excluded_origins": [],
+    "fitting_or_scaling": "none",
+    "forecast_origin": "after closing on t; history contains only dates <= t",
+    "metric_aggregation": "pool all absolute/squared errors within each horizon/model; never average SME RMSE",
+    "metric_serialization": "6 decimal places, ROUND_HALF_UP; Decimal precision 80 before serialization",
+    "rolling_observations": true,
+    "target_date_ranges": {
+      "30": {
+        "end": "2025-12-31",
+        "start": "2025-01-30"
+      },
+      "7": {
+        "end": "2025-12-08",
+        "start": "2025-01-07"
+      }
+    }
+  },
+  "runtime": {
+    "python_version": "3.14.0",
+    "third_party_dependencies": []
+  },
+  "source_sha256": {
+    "baseline_data.py": "695f9b794d649378e6c3a45908de5af2b792500907306f63b2f29a0c42b1becd",
+    "cash_flow_baseline.py": "256d57c6f37ed44590dc66847bdd8b99cec95fe9ed714927d86572771e957d0a"
+  },
+  "splits": [
+    {
+      "company_key": "FS1-20261018-A",
+      "test_end": "2025-12-31",
+      "test_rows": 365,
+      "test_start": "2025-01-01",
+      "train_end": "2024-12-31",
+      "train_rows": 366,
+      "train_start": "2024-01-01"
+    },
+    {
+      "company_key": "FS1-20261018-B",
+      "test_end": "2025-12-31",
+      "test_rows": 365,
+      "test_start": "2025-01-01",
+      "train_end": "2024-12-31",
+      "train_rows": 366,
+      "train_start": "2024-01-01"
+    },
+    {
+      "company_key": "FS1-20261018-C",
+      "test_end": "2025-12-31",
+      "test_rows": 365,
+      "test_start": "2025-01-01",
+      "train_end": "2024-12-31",
+      "train_rows": 366,
+      "train_start": "2024-01-01"
+    }
+  ],
+  "target": "daily_closing_cash_balance",
+  "unit": "USD"
+}
