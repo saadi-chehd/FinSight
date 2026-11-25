@@ -1,9 +1,190 @@
-from fastapi import FastAPI
+from datetime import date, timedelta
+from decimal import Decimal
+import re
+from typing import Literal
 
-app = FastAPI(title="FinSight Forecasting", version="0.0.1")
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from forecasting.experiments.baseline_data import History, MissingHistoryError, Observation, money
+from forecasting.experiments.cash_flow_models import (
+    DISCLAIMER,
+    EXPERIMENT_VERSION,
+    MAX_RESIDUAL_WINDOW,
+    MODEL_DESCRIPTIONS,
+    min_required_history_days,
+    predict_with_intervals,
+)
+
+
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+app = FastAPI(title="FinSight Forecasting", version="0.1.0")
+
+
+class HistoryEntry(BaseModel):
+    date: date
+    closing_balance: str | Decimal | int | float
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def validate_date(cls, value: object) -> object:
+        if isinstance(value, (bool, int, float)):
+            raise ValueError("date must be an ISO calendar date string (YYYY-MM-DD)")
+        return value
+
+    @field_validator("closing_balance", mode="before")
+    @classmethod
+    def validate_closing_balance(cls, value: object) -> Decimal:
+        if isinstance(value, bool) or value is None:
+            raise ValueError("closing_balance must be a 2-decimal monetary amount")
+        if isinstance(value, (int, float)):
+            value = str(value)
+        elif not isinstance(value, (str, Decimal)):
+            raise ValueError("closing_balance must be a string, Decimal, or number")
+        return money(value)
+
+
+class ForecastRequest(BaseModel):
+    currency: str
+    history: list[HistoryEntry]
+    horizons: list[int] = Field(default_factory=lambda: [7, 30])
+    model: Literal["drift_calendar", "ridge_lag_calendar", "naive"] = "drift_calendar"
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not CURRENCY_RE.fullmatch(normalized):
+            raise ValueError("currency must be a 3-letter ISO code such as USD")
+        return normalized
+
+    @field_validator("horizons", mode="before")
+    @classmethod
+    def validate_horizons(cls, value: object) -> list[int]:
+        if not isinstance(value, list) or not value:
+            raise ValueError("horizons must be a nonempty list of integer horizons")
+        seen: set[int] = set()
+        for item in value:
+            if not isinstance(item, int) or isinstance(item, bool) or not (1 <= item <= 365):
+                raise ValueError("Each horizon must be an integer between 1 and 365")
+            if item in seen:
+                raise ValueError(f"Duplicate horizon {item} is not allowed")
+            seen.add(item)
+        return value
+
+    @model_validator(mode="after")
+    def validate_history_chronology(self) -> "ForecastRequest":
+        if not self.history:
+            raise ValueError("history must contain at least one daily observation")
+        for prev, curr in zip(self.history, self.history[1:]):
+            if curr.date == prev.date:
+                raise ValueError(f"Duplicate calendar date {curr.date.isoformat()} in history")
+            if curr.date < prev.date:
+                raise ValueError(
+                    f"History dates must be strictly ascending; {curr.date.isoformat()} follows {prev.date.isoformat()}"
+                )
+            if curr.date - prev.date != timedelta(days=1):
+                raise ValueError(
+                    f"Missing calendar day(s) between {prev.date.isoformat()} and {curr.date.isoformat()}; no filling"
+                )
+        return self
+
+
+class IntervalBoundsResponse(BaseModel):
+    lower: str
+    upper: str
+
+
+class HorizonForecastResponse(BaseModel):
+    horizon_days: int
+    target_date: date
+    predicted_closing_balance: str
+    interval_80: IntervalBoundsResponse
+    interval_95: IntervalBoundsResponse
+    residual_count: int
+
+
+class ModelMetadataResponse(BaseModel):
+    name: str
+    version: str
+    description: str
+    interval_method: str
+    min_history_days: int
+    residual_window_max: int
+
+
+class ForecastResponse(BaseModel):
+    currency: str
+    origin_date: date
+    history_start_date: date
+    history_days: int
+    model: ModelMetadataResponse
+    forecasts: list[HorizonForecastResponse]
+    disclaimer: str
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     """Process liveness only; no model or database is loaded."""
     return {"status": "UP", "service": "forecasting"}
+
+
+@app.post("/forecast", response_model=ForecastResponse)
+def forecast(request: ForecastRequest) -> ForecastResponse:
+    """Produce conditional closing-cash point forecasts and empirical 80%/95% prediction intervals."""
+    max_horizon = max(request.horizons)
+    required_days = min_required_history_days(request.model, max_horizon)
+    if len(request.history) < required_days:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Insufficient history for model '{request.model}' at max horizon {max_horizon}: "
+                f"requires at least {required_days} consecutive daily observations, received {len(request.history)}"
+            ),
+        )
+
+    observations = tuple(
+        Observation(entry.date, entry.closing_balance)
+        for entry in request.history
+    )
+    history = History(observations[-1].day, observations)
+    try:
+        predictions = predict_with_intervals(history, request.horizons, request.model)
+    except (MissingHistoryError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    forecasts = [
+        HorizonForecastResponse(
+            horizon_days=h,
+            target_date=predictions[h].target_date,
+            predicted_closing_balance=format(predictions[h].predicted, ".2f"),
+            interval_80=IntervalBoundsResponse(
+                lower=format(predictions[h].lower_80, ".2f"),
+                upper=format(predictions[h].upper_80, ".2f"),
+            ),
+            interval_95=IntervalBoundsResponse(
+                lower=format(predictions[h].lower_95, ".2f"),
+                upper=format(predictions[h].upper_95, ".2f"),
+            ),
+            residual_count=predictions[h].residual_count,
+        )
+        for h in request.horizons
+    ]
+
+    return ForecastResponse(
+        currency=request.currency,
+        origin_date=history.origin,
+        history_start_date=observations[0].day,
+        history_days=len(observations),
+        model=ModelMetadataResponse(
+            name=request.model,
+            version=EXPERIMENT_VERSION,
+            description=MODEL_DESCRIPTIONS[request.model],
+            interval_method="split_conformal_past_rolling_residuals",
+            min_history_days=required_days,
+            residual_window_max=MAX_RESIDUAL_WINDOW,
+        ),
+        forecasts=forecasts,
+        disclaimer=DISCLAIMER,
+    )
