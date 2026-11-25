@@ -5,7 +5,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest
-abstract class PostgresTestSupport {
+public abstract class PostgresTestSupport {
     @DynamicPropertySource
     static void testDatabase(DynamicPropertyRegistry registry) {
         String url = required("TEST_DB_URL");

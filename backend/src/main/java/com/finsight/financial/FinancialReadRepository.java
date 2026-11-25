@@ -1,5 +1,6 @@
 package com.finsight.financial;
 
+import com.finsight.api.ResourceNotFoundException;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.jdbc.core.RowMapper;
@@ -17,7 +18,7 @@ public class FinancialReadRepository {
 
     public String currency(long smeId) {
         return jdbc.sql("SELECT currency FROM smes WHERE id=:sme").param("sme", smeId)
-            .query(String.class).optional().orElseThrow(() -> new IllegalArgumentException("Unknown SME"));
+            .query(String.class).optional().orElseThrow(() -> new ResourceNotFoundException("Unknown SME"));
     }
 
     public List<Movement> movements(long smeId, LocalDate start, LocalDate end) {
