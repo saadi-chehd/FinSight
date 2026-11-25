@@ -12,6 +12,8 @@ import {
 import {
   BANKPILOT_GOVERNANCE_STATEMENT,
   CASH_FLOW_DISCLAIMER,
+  FORECAST_MODELS,
+  formatEnsembleWeightsSummary,
   getCashFlow,
   getForecast,
   getFriendlyErrorMessage,
@@ -135,7 +137,15 @@ function computeRowIndicators(analysis) {
   };
 }
 
-function buildMarkdownBrief({ sme, draft, analysis, indicators, checklist, notes }) {
+export function buildMarkdownBrief({
+  sme,
+  draft,
+  analysis,
+  indicators,
+  checklist,
+  notes,
+  selectedModel = 'ensemble_ml',
+}) {
   const synthetic = isSyntheticSme(sme);
   const currency = sme.currency;
   const activeParams = analysis?.params || draft;
@@ -143,12 +153,26 @@ function buildMarkdownBrief({ sme, draft, analysis, indicators, checklist, notes
   const forecast = analysis?.forecast || null;
   const forecastError = analysis?.forecastError || null;
 
-  const modelLabel = forecast?.model
-    ? `${forecast.model.name} (${forecast.model.version || 'CM1'})`
-    : 'drift_calendar (CM1 — forecast unavailable)';
+  const selectedModelMeta =
+    FORECAST_MODELS.find((m) => m.id === selectedModel) || FORECAST_MODELS[0];
+  const forecastModel = forecast?.model || null;
+  const modelLabel = forecastModel
+    ? `${forecastModel.name} (${forecastModel.version || selectedModelMeta.version})`
+    : `${selectedModelMeta.id} (${selectedModelMeta.version} — forecast unavailable)`;
   const intervalMethod =
-    forecast?.model?.intervalMethod || 'split_conformal_past_rolling_residuals';
+    forecastModel?.intervalMethod || 'split_conformal_past_rolling_residuals';
   const historyDays = forecast?.historyDays ?? cashFlow?.days?.length ?? 'N/A';
+  const usesOpenInvoicesText = forecastModel
+    ? forecastModel.usesOpenInvoices
+      ? 'Yes'
+      : 'No'
+    : 'N/A';
+  const openInvoiceCountText =
+    forecastModel?.openInvoiceCount != null ? String(forecastModel.openInvoiceCount) : 'N/A';
+  const activeMembersText =
+    forecastModel?.activeMembers?.length > 0 ? forecastModel.activeMembers.join(', ') : 'N/A';
+  const ensembleWeightsText =
+    formatEnsembleWeightsSummary(forecastModel?.ensembleWeights) || 'N/A';
 
   const lines = [
     `# BankPilot Human-Governed Financial Review Brief`,
@@ -180,6 +204,10 @@ function buildMarkdownBrief({ sme, draft, analysis, indicators, checklist, notes
     `| Forecast Model & Version | ${modelLabel} |`,
     `| Interval Method | ${intervalMethod} |`,
     `| History Days | ${historyDays} |`,
+    `| Invoice-Aware ML (usesOpenInvoices) | ${usesOpenInvoicesText} |`,
+    `| Open Invoice Count | ${openInvoiceCountText} |`,
+    `| Active Ensemble Members | ${activeMembersText} |`,
+    `| Ensemble Weights | ${ensembleWeightsText} |`,
     '',
     `## 2. Audited Indicators`,
     '',
@@ -245,10 +273,16 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
   const [portfolioMessage, setPortfolioMessage] = useState(null);
   const [portfolioBusy, setPortfolioBusy] = useState(false);
 
+  const [selectedModel, setSelectedModel] = useState('ensemble_ml');
   const [dossierSmeId, setDossierSmeId] = useState(null);
   const [checklistBySme, setChecklistBySme] = useState({});
   const [notesBySme, setNotesBySme] = useState({});
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+
+  const selectedModelMeta = useMemo(
+    () => FORECAST_MODELS.find((m) => m.id === selectedModel) || FORECAST_MODELS[0],
+    [selectedModel],
+  );
 
   const hasFs1Presets = useMemo(
     () => smes.some((sme) => Boolean(getFs1PresetForSme(sme))),
@@ -307,36 +341,39 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
     });
   };
 
-  const runSmeAnalysis = useCallback(async (sme, normalizedParams) => {
-    setLoadingBySme((prev) => ({ ...prev, [sme.id]: true }));
-    try {
-      const [cfRes, invRes, fcRes] = await Promise.allSettled([
-        getCashFlow(sme.id, normalizedParams),
-        getInvoiceSummary(sme.id, { asOfDate: normalizedParams.endDate }),
-        getForecast(sme.id, {
-          ...normalizedParams,
-          horizons: '7,30',
-          model: 'drift_calendar',
-        }),
-      ]);
+  const runSmeAnalysis = useCallback(
+    async (sme, normalizedParams) => {
+      setLoadingBySme((prev) => ({ ...prev, [sme.id]: true }));
+      try {
+        const [cfRes, invRes, fcRes] = await Promise.allSettled([
+          getCashFlow(sme.id, normalizedParams),
+          getInvoiceSummary(sme.id, { asOfDate: normalizedParams.endDate }),
+          getForecast(sme.id, {
+            ...normalizedParams,
+            horizons: '7,30',
+            model: selectedModel,
+          }),
+        ]);
 
-      setAnalysisBySme((prev) => ({
-        ...prev,
-        [sme.id]: {
-          params: normalizedParams,
-          cashFlow: cfRes.status === 'fulfilled' ? cfRes.value : null,
-          cashFlowError: cfRes.status === 'rejected' ? cfRes.reason : null,
-          invoiceSummary: invRes.status === 'fulfilled' ? invRes.value : null,
-          invoiceError: invRes.status === 'rejected' ? invRes.reason : null,
-          forecast: fcRes.status === 'fulfilled' ? fcRes.value : null,
-          forecastError: fcRes.status === 'rejected' ? fcRes.reason : null,
-          analyzedAt: new Date().toISOString(),
-        },
-      }));
-    } finally {
-      setLoadingBySme((prev) => ({ ...prev, [sme.id]: false }));
-    }
-  }, []);
+        setAnalysisBySme((prev) => ({
+          ...prev,
+          [sme.id]: {
+            params: normalizedParams,
+            cashFlow: cfRes.status === 'fulfilled' ? cfRes.value : null,
+            cashFlowError: cfRes.status === 'rejected' ? cfRes.reason : null,
+            invoiceSummary: invRes.status === 'fulfilled' ? invRes.value : null,
+            invoiceError: invRes.status === 'rejected' ? invRes.reason : null,
+            forecast: fcRes.status === 'fulfilled' ? fcRes.value : null,
+            forecastError: fcRes.status === 'rejected' ? fcRes.reason : null,
+            analyzedAt: new Date().toISOString(),
+          },
+        }));
+      } finally {
+        setLoadingBySme((prev) => ({ ...prev, [sme.id]: false }));
+      }
+    },
+    [selectedModel],
+  );
 
   const handleAnalyzeRow = async (sme) => {
     setPortfolioMessage(null);
@@ -447,6 +484,10 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
   const dossierDraft = dossierSme ? getDraftForSme(dossierSme.id) : EMPTY_ROW_DRAFT;
   const dossierChecklist = dossierSme ? checklistBySme[dossierSme.id] || {} : {};
   const dossierNotes = dossierSme ? notesBySme[dossierSme.id] || '' : '';
+  const dossierForecastModel = dossierAnalysis?.forecast?.model || null;
+  const dossierEnsembleSummary = formatEnsembleWeightsSummary(
+    dossierForecastModel?.ensembleWeights,
+  );
 
   const toggleChecklistItem = (smeId, itemId) => {
     setChecklistBySme((prev) => ({
@@ -474,6 +515,7 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
       indicators: dossierIndicators,
       checklist: dossierChecklist,
       notes: dossierNotes,
+      selectedModel,
     });
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -524,7 +566,24 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
               </p>
             </div>
 
-            <div className="btn-row no-print">
+            <div className="btn-row no-print" style={{ alignItems: 'flex-end' }}>
+              <div className="field" style={{ minWidth: 235 }}>
+                <label className="field-label" htmlFor="bankpilot-forecast-model">
+                  Portfolio Forecast Model
+                </label>
+                <select
+                  id="bankpilot-forecast-model"
+                  className="select"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                >
+                  {FORECAST_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
                 type="button"
                 className="btn btn-preset btn-sm"
@@ -777,6 +836,30 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
                           </div>
                         ) : indicators?.forecast7d || indicators?.forecast30d ? (
                           <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                            {analysis?.forecast?.model && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  flexWrap: 'wrap',
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {analysis.forecast.model.usesOpenInvoices && (
+                                  <Badge tone="teal">Invoice-Aware ML</Badge>
+                                )}
+                                <span className="field-hint mono">
+                                  {analysis.forecast.model.name} (
+                                  {analysis.forecast.model.version || 'CM1'})
+                                </span>
+                                {analysis.forecast.model.openInvoiceCount != null && (
+                                  <span className="field-hint">
+                                    · {analysis.forecast.model.openInvoiceCount} open inv.
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {indicators.forecast7d && (
                               <div>
                                 <strong>7d:</strong>{' '}
@@ -981,13 +1064,13 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
                   <tr>
                     <th>Forecast Model &amp; Version</th>
                     <td className="mono">
-                      {dossierAnalysis?.forecast?.model
-                        ? `${dossierAnalysis.forecast.model.name} (${dossierAnalysis.forecast.model.version || 'CM1'})`
-                        : 'drift_calendar (CM1)'}
+                      {dossierForecastModel
+                        ? `${dossierForecastModel.name} (${dossierForecastModel.version || selectedModelMeta.version})`
+                        : `${selectedModelMeta.id} (${selectedModelMeta.version})`}
                     </td>
                     <th>Interval Method</th>
                     <td className="mono">
-                      {dossierAnalysis?.forecast?.model?.intervalMethod ||
+                      {dossierForecastModel?.intervalMethod ||
                         'split_conformal_past_rolling_residuals'}
                     </td>
                   </tr>
@@ -1003,6 +1086,38 @@ export function BankPilotView({ smes = [], smesLoading = false, smesError = null
                       {dossierIndicators?.warningsCount != null
                         ? `${dossierIndicators.warningsCount} (${dossierIndicators.shortfallCount} shortfall, ${dossierIndicators.bufferCount} buffer)`
                         : '—'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Invoice-Aware Mode</th>
+                    <td>
+                      {dossierForecastModel ? (
+                        dossierForecastModel.usesOpenInvoices ? (
+                          <Badge tone="teal">Invoice-Aware ML</Badge>
+                        ) : (
+                          <Badge tone="neutral">Cash-Only</Badge>
+                        )
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <th>Open Invoice Count</th>
+                    <td className="tabular-nums">
+                      {dossierForecastModel?.openInvoiceCount != null
+                        ? dossierForecastModel.openInvoiceCount
+                        : '—'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Active Ensemble Members</th>
+                    <td className="mono">
+                      {dossierForecastModel?.activeMembers?.length > 0
+                        ? dossierForecastModel.activeMembers.join(', ')
+                        : '—'}
+                    </td>
+                    <th>Ensemble Horizon Weights</th>
+                    <td className="tabular-nums">
+                      {dossierEnsembleSummary || '—'}
                     </td>
                   </tr>
                 </tbody>

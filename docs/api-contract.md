@@ -68,7 +68,7 @@ Standard error codes:
 
 ### Conditional-Analysis Disclaimers
 - **Cash-flow reports & scenario simulations** are deterministic, conditional arithmetic roll-forwards based strictly on the caller-supplied opening balance, recorded ledger movements, and user-entered scenario assumptions. They do not invent cash receipts, mutate stored ledger records, or constitute solvency proofs.
-- **Forecasting outputs** are conditional mathematical estimates derived solely from historical daily closing cash balances. Outputs are **not** solvency proofs, liquidity guarantees, financial advice, or credit/lending decisions.
+- **Forecasting outputs** are conditional mathematical estimates derived from historical daily closing cash balances (and, for invoice-aware CM2 models, point-in-time open-invoice schedules reconstructed strictly as of origin). Outputs are **not** solvency proofs, liquidity guarantees, financial advice, or credit/lending decisions.
 
 ---
 
@@ -312,7 +312,9 @@ Required query parameters:
 
 Optional query parameters:
 - `horizons`: comma-separated positive unique integers in `1..365` (default `"7,30"`)
-- `model`: `drift_calendar | ridge_lag_calendar | naive` (default `"drift_calendar"`)
+- `model`: `drift_calendar | ridge_lag_calendar | naive | gbdt_direct | invoice_aware_ml | ensemble_ml` (default `"drift_calendar"` at the API layer; UI selectors default to `"ensemble_ml"`)
+
+For invoice-aware models (`invoice_aware_ml`, `ensemble_ml`), the Java backend automatically reconstructs point-in-time open invoices as of `endDate` via `FinancialReportService.invoiceSummary(smeId, endDate)` (strictly filtering `issue_date <= endDate` and linked payments with `booked_date <= endDate`, excluding `CANCELLED` and fully-paid invoices), and forwards them to Python `POST /forecast` as `open_invoices` (passing `[]` if none are open). Non-invoice-aware models (`gbdt_direct` and CM1 models) omit `open_invoices` (`null`).
 
 HTTP 200 response (`SmeForecastResponse`):
 ```json
@@ -326,12 +328,19 @@ HTTP 200 response (`SmeForecastResponse`):
   "historyStartDate": "2024-01-01",
   "historyDays": 366,
   "model": {
-    "name": "drift_calendar",
-    "version": "CM1",
+    "name": "ensemble_ml",
+    "version": "CM2",
     "description": "...",
     "intervalMethod": "split_conformal_past_rolling_residuals",
-    "minHistoryDays": 109,
-    "residualWindowMax": 365
+    "minHistoryDays": 139,
+    "residualWindowMax": 180,
+    "usesOpenInvoices": true,
+    "openInvoiceCount": 4,
+    "activeMembers": ["drift_calendar", "gbdt_direct", "invoice_aware_ml"],
+    "ensembleWeights": {
+      "7": {"drift_calendar": 0.31, "gbdt_direct": 0.24, "invoice_aware_ml": 0.45},
+      "30": {"drift_calendar": 0.28, "gbdt_direct": 0.22, "invoice_aware_ml": 0.50}
+    }
   },
   "forecasts": [
     {
@@ -340,7 +349,7 @@ HTTP 200 response (`SmeForecastResponse`):
       "predictedClosingBalance": "5420.15",
       "interval80": {"lower": "4890.00", "upper": "5950.30"},
       "interval95": {"lower": "4410.50", "upper": "6429.80"},
-      "residualCount": 300
+      "residualCount": 180
     },
     {
       "horizonDays": 30,
@@ -348,12 +357,18 @@ HTTP 200 response (`SmeForecastResponse`):
       "predictedClosingBalance": "6110.80",
       "interval80": {"lower": "4980.10", "upper": "7241.50"},
       "interval95": {"lower": "4120.00", "upper": "8101.60"},
-      "residualCount": 277
+      "residualCount": 180
     }
   ],
-  "disclaimer": "Conditional mathematical estimates derived solely from historical daily closing cash balances. Outputs are not solvency proofs, liquidity guarantees, financial advice, or credit/lending decisions."
+  "disclaimer": "Conditional mathematical estimates derived from historical daily closing cash balances and point-in-time open-invoice schedules; outputs are not solvency proofs, liquidity guarantees, financial advice, or credit/lending decisions."
 }
 ```
+
+Additive `model` metadata fields (CM2):
+- `usesOpenInvoices` (`boolean`): `true` when point-in-time open invoices were used by the model (`invoice_aware_ml`, or `ensemble_ml` when `open_invoices` is supplied).
+- `openInvoiceCount` (`integer | null`): number of open invoices supplied at origin (when `open_invoices` is provided), else `null`.
+- `activeMembers` (`string[] | null`): active constituent model names for `ensemble_ml`, else `null`.
+- `ensembleWeights` (`map<string, map<string, number>> | null`): per-horizon normalized inverse-squared-MAE member weights for `ensemble_ml`, else `null`.
 
 Error mappings:
 - `400 BAD_REQUEST`: Invalid/missing query params, fractional `openingAmount`, currency mismatch, reversed dates, invalid `horizons`, or unsupported `model`.
@@ -375,14 +390,22 @@ Request JSON:
     {"date": "2024-01-02", "closing_balance": "5125.50"}
   ],
   "horizons": [7, 30],
-  "model": "drift_calendar"
+  "model": "ensemble_ml",
+  "open_invoices": [
+    {"direction": "INFLOW", "due_date": "2025-01-05", "outstanding": "1250.00"}
+  ]
 }
 ```
 
+Optional `open_invoices` rules:
+- Each entry requires `direction` (`"INFLOW" | "OUTFLOW"`), `due_date` (`YYYY-MM-DD`), and `outstanding` (exact 2-decimal monetary string strictly `> "0.00"`).
+- Required (non-null list, `[]` allowed) when `model == "invoice_aware_ml"`; omitting it returns HTTP `422`.
+- Optional for `model == "ensemble_ml"`: when provided, active members are `["drift_calendar", "gbdt_direct", "invoice_aware_ml"]` (`uses_open_invoices: true`); when omitted/`null`, `ensemble_ml` gracefully runs with active members `["drift_calendar", "gbdt_direct"]` (`uses_open_invoices: false`).
+
 Minimum required consecutive daily history length:
-- `min_fit_days[model] + max(horizons) + 19`
-  - `drift_calendar` / `ridge_lag_calendar`: `60 + max(horizons) + 19` (e.g. `109` days at `max(horizons) = 30`)
-  - `naive`: `1 + max(horizons) + 19` (e.g. `50` days at `max(horizons) = 30`)
+- `gbdt_direct` / `invoice_aware_ml` / `ensemble_ml` (`CM2`): `max(90, 28 + max(horizons) + 30) + max(horizons) + 19` (e.g. `139` days at `max(horizons) = 30`)
+- `drift_calendar` / `ridge_lag_calendar` (`CM1`): `60 + max(horizons) + 19` (e.g. `109` days at `max(horizons) = 30`)
+- `naive` (`CM1`): `1 + max(horizons) + 19` (e.g. `50` days at `max(horizons) = 30`)
 
 HTTP 200 response JSON:
 ```json
@@ -392,12 +415,19 @@ HTTP 200 response JSON:
   "history_start_date": "2024-01-01",
   "history_days": 366,
   "model": {
-    "name": "drift_calendar",
-    "version": "CM1",
+    "name": "ensemble_ml",
+    "version": "CM2",
     "description": "...",
     "interval_method": "split_conformal_past_rolling_residuals",
-    "min_history_days": 109,
-    "residual_window_max": 365
+    "min_history_days": 139,
+    "residual_window_max": 180,
+    "uses_open_invoices": true,
+    "open_invoice_count": 1,
+    "active_members": ["drift_calendar", "gbdt_direct", "invoice_aware_ml"],
+    "ensemble_weights": {
+      "7": {"drift_calendar": 0.31, "gbdt_direct": 0.24, "invoice_aware_ml": 0.45},
+      "30": {"drift_calendar": 0.28, "gbdt_direct": 0.22, "invoice_aware_ml": 0.50}
+    }
   },
   "forecasts": [
     {
@@ -406,11 +436,11 @@ HTTP 200 response JSON:
       "predicted_closing_balance": "5420.15",
       "interval_80": {"lower": "4890.00", "upper": "5950.30"},
       "interval_95": {"lower": "4410.50", "upper": "6429.80"},
-      "residual_count": 300
+      "residual_count": 180
     }
   ],
-  "disclaimer": "Conditional mathematical estimates derived solely from historical daily closing cash balances. Outputs are not solvency proofs, liquidity guarantees, financial advice, or credit/lending decisions."
+  "disclaimer": "Conditional mathematical estimates derived from historical daily closing cash balances and point-in-time open-invoice schedules; outputs are not solvency proofs, liquidity guarantees, financial advice, or credit/lending decisions."
 }
 ```
 
-HTTP 422 is returned on missing calendar days, duplicate or non-ascending dates, fractional minor units, invalid currencies, duplicate or out-of-range horizons, unsupported model names, or insufficient history.
+HTTP 422 is returned on missing calendar days, duplicate or non-ascending dates, fractional minor units, invalid currencies, duplicate or out-of-range horizons, unsupported model names, invalid `open_invoices` entries (or missing `open_invoices` for `invoice_aware_ml`), or insufficient history.

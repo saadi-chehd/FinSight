@@ -9,7 +9,13 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
-import { CASH_FLOW_DISCLAIMER, getCashFlow, getForecast } from '../api/finsightApi';
+import {
+  CASH_FLOW_DISCLAIMER,
+  FORECAST_MODELS,
+  getCashFlow,
+  getEnsembleWeightRows,
+  getForecast,
+} from '../api/finsightApi';
 import {
   compareMoneyStrings,
   exportCsv,
@@ -24,12 +30,6 @@ import {
   EmptyState,
   LoadingSkeleton,
 } from './Common';
-
-const FORECAST_MODELS = [
-  { id: 'drift_calendar', label: 'Drift + Calendar (CM1)' },
-  { id: 'ridge_lag_calendar', label: 'Ridge Lag + Calendar (CM1)' },
-  { id: 'naive', label: 'Naïve Persistence' },
-];
 
 const QUICK_HORIZONS = ['7,30', '7,14,30', '7,30,60'];
 const PAGE_SIZE = 25;
@@ -84,7 +84,7 @@ export function CashFlowForecastView({ sme, params }) {
   const [cashFlowError, setCashFlowError] = useState(null);
   const [cashFlowNonce, setCashFlowNonce] = useState(0);
 
-  const [model, setModel] = useState('drift_calendar');
+  const [model, setModel] = useState('ensemble_ml');
   const [horizonsDraft, setHorizonsDraft] = useState('7,30');
   const [committedHorizons, setCommittedHorizons] = useState('7,30');
   const [horizonsError, setHorizonsError] = useState(null);
@@ -259,6 +259,11 @@ export function CashFlowForecastView({ sme, params }) {
     if (!forecast || !Array.isArray(forecast.forecasts)) return [];
     return [...forecast.forecasts].sort((a, b) => a.horizonDays - b.horizonDays);
   }, [forecast]);
+
+  const ensembleWeightRows = useMemo(
+    () => getEnsembleWeightRows(forecast?.model?.ensembleWeights),
+    [forecast],
+  );
 
   if (!sme || !params) {
     return (
@@ -542,6 +547,17 @@ export function CashFlowForecastView({ sme, params }) {
                 <Badge tone="indigo">Version: {forecast.model.version}</Badge>
               )}
               {forecast.model?.name && <Badge tone="neutral">Model: {forecast.model.name}</Badge>}
+              {forecast.model?.usesOpenInvoices && (
+                <Badge tone="teal">Invoice-Aware ML</Badge>
+              )}
+              {forecast.model?.openInvoiceCount != null && (
+                <Badge tone="sky">Open Invoices: {forecast.model.openInvoiceCount}</Badge>
+              )}
+              {forecast.model?.activeMembers?.length > 0 && (
+                <Badge tone="indigo">
+                  Active Members: {forecast.model.activeMembers.join(', ')}
+                </Badge>
+              )}
               {forecast.model?.intervalMethod && (
                 <Badge tone="sky">Interval: {forecast.model.intervalMethod}</Badge>
               )}
@@ -560,6 +576,41 @@ export function CashFlowForecastView({ sme, params }) {
               <p className="card-subtitle" style={{ margin: 0 }}>
                 {forecast.model.description}
               </p>
+            )}
+
+            {ensembleWeightRows.length > 0 && (
+              <div
+                className="banner"
+                style={{
+                  background: 'var(--surface-muted)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--navy-800)',
+                  padding: '10px 14px',
+                }}
+                aria-label="Ensemble Horizon Weights"
+              >
+                <div className="banner-content">
+                  <p className="banner-title" style={{ marginBottom: 4 }}>
+                    Ensemble Horizon Weights (Past OOS MAE Inverse-Squared)
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {ensembleWeightRows.map((row) => (
+                      <div
+                        key={row.horizon}
+                        className="tabular-nums"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}
+                      >
+                        <strong className="mono">+{row.horizon}d:</strong>
+                        {row.members.map((m) => (
+                          <Badge key={m.member} tone="neutral">
+                            {m.member}: {m.percentText}
+                          </Badge>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
 
             <div className="kpi-grid">

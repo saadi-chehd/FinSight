@@ -140,6 +140,24 @@ def main():
             assert len(live_forecast.get("forecasts", [])) == 2, live_forecast
             assert live_forecast.get("disclaimer"), live_forecast
             print(f"PASS: Live Java -> Python forecast for SME {sme['id']}", flush=True)
+
+            live_ml_query = urllib.parse.urlencode({
+                "openingDate": "2024-01-01",
+                "openingAmount": "5000.00",
+                "currency": sme["currency"],
+                "endDate": "2024-12-31",
+                "model": "ensemble_ml",
+            })
+            live_ml_forecast = request_json(
+                opener,
+                f"http://127.0.0.1:{backend_port}/api/smes/{sme['id']}/forecast?{live_ml_query}",
+                expected_status=200,
+            )
+            assert len(live_ml_forecast.get("forecasts", [])) == 2, live_ml_forecast
+            assert live_ml_forecast.get("model", {}).get("name") == "ensemble_ml", live_ml_forecast
+            assert live_ml_forecast.get("model", {}).get("version") == "CM2", live_ml_forecast
+            assert live_ml_forecast.get("model", {}).get("usesOpenInvoices") is True, live_ml_forecast
+            print(f"PASS: Live Java -> Python CM2 ensemble_ml forecast for SME {sme['id']}", flush=True)
         else:
             py_forecast = request_json(
                 opener,
@@ -151,6 +169,17 @@ def main():
             assert len(py_forecast.get("forecasts", [])) == 2, py_forecast
             assert py_forecast.get("disclaimer"), py_forecast
             print("PASS: Direct Python POST /forecast (empty dev DB fallback)", flush=True)
+
+            py_ml_forecast = request_json(
+                opener,
+                f"http://127.0.0.1:{python_port}/forecast",
+                method="POST",
+                payload={"currency": "USD", "history": build_synthetic_history(150), "model": "gbdt_direct"},
+                expected_status=200,
+            )
+            assert len(py_ml_forecast.get("forecasts", [])) == 2, py_ml_forecast
+            assert py_ml_forecast.get("model", {}).get("version") == "CM2", py_ml_forecast
+            print("PASS: Direct Python POST /forecast CM2 gbdt_direct", flush=True)
 
         print("HTTP smoke checks and forecast bridge checks passed.")
     finally:

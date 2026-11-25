@@ -12,9 +12,9 @@ All cash-flow forecasting benchmarks and models in FinSight share one strict chr
 ## Anti-Leakage Controls
 
 - Every predictor accepts only an immutable, origin-bounded `History` prefix containing closing balances dated `<= origin`.
-- Future actuals, raw invoices, raw transactions, and end-of-dataset `payment_status_at_cutoff` snapshots are excluded from predictors.
+- Point-in-time open invoices and empirical settlement statistics at `origin` are reconstructed strictly from `invoices.csv` rows with `issue_date <= origin` and linked `transactions.csv` payments with `booked_date <= origin`; the end-of-dataset `payment_status_at_cutoff` column is never parsed, stored, or branched on.
 - Empirical prediction intervals (`80%` and `95%`) use split-conformal calibration over strictly past out-of-sample rolling residuals whose targets satisfy `s + h <= origin`.
-- Perturbation unit tests verify that changing observations strictly after an origin (or after the final origin) leaves all earlier point predictions and interval bounds unchanged.
+- Perturbation unit tests verify that changing closing-balance observations strictly after an origin, inserting/mutating future invoices (`issue_date > origin`), inserting/mutating future payments (`booked_date > origin`), or scrambling `payment_status_at_cutoff` across `invoices.csv` leaves all earlier point predictions and 80%/95% interval bounds 100% unchanged.
 
 ## Metrics & Pooling
 
@@ -30,7 +30,8 @@ For error `e_i = predicted_i - actual_i`:
 
 1. **Baseline Benchmark (`CB1`):** See [forecasting-baseline.md](forecasting-baseline.md) and `forecasting/experiments/cash_flow_baseline.py` (`naive` and `weekly_seasonal`, artifacts in `forecasting/results/fs1-closing-balance-baseline/`).
 2. **Forecasting Models & Live Endpoint (`CM1`):** See [forecasting-models.md](forecasting-models.md), `forecasting/experiments/cash_flow_models.py`, and `POST /forecast` in `forecasting/app/main.py` (`drift_calendar` and `ridge_lag_calendar` vs. `naive`, empirical 80%/95% conformal intervals, artifacts in `forecasting/results/fs1-closing-balance-models-v1/`).
+3. **ML & Invoice-Aware Forecasting Models (`CM2`):** See [forecasting-models.md](forecasting-models.md), `forecasting/experiments/cash_flow_ml.py`, and `POST /forecast` (`gbdt_direct`, `invoice_aware_ml`, and adaptive `ensemble_ml` alongside `CM1` models, artifacts in `forecasting/results/fs1-closing-balance-models-v2/`, plus locked-hyperparameter generalization checks across extra FS1 seeds `20261019` and `20261020`).
 
 ## Caveats
 
-Synthetic FS1 results validate chronological alignment, leakage isolation, and pipeline reproducibility only. They must not be presented as real-world SME accuracy, solvency proof, or credit/lending eligibility.
+Synthetic FS1 results (across seeds `20261018`, `20261019`, and `20261020`) validate chronological alignment, zero-leakage point-in-time reconstruction, and pipeline reproducibility only. They must not be presented as real-world SME accuracy, solvency proof, or credit/lending eligibility.

@@ -3,7 +3,9 @@ package com.finsight.forecast;
 import com.finsight.api.DownstreamServiceException;
 import com.finsight.api.MoneyCodec;
 import com.finsight.financial.FinancialModels.CashFlowReport;
+import com.finsight.financial.FinancialModels.InvoiceSummary;
 import com.finsight.financial.FinancialModels.OpeningCash;
+import com.finsight.financial.FinancialModels.PaymentStatus;
 import com.finsight.financial.FinancialReportService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -19,7 +21,14 @@ import static com.finsight.forecast.ForecastModels.*;
 public class ForecastService {
     private static final String DEFAULT_MODEL = "drift_calendar";
     private static final List<Integer> DEFAULT_HORIZONS = List.of(7, 30);
-    private static final Set<String> ALLOWED_MODELS = Set.of("drift_calendar", "ridge_lag_calendar", "naive");
+    private static final Set<String> ALLOWED_MODELS = Set.of(
+            "drift_calendar",
+            "ridge_lag_calendar",
+            "naive",
+            "gbdt_direct",
+            "invoice_aware_ml",
+            "ensemble_ml");
+    private static final Set<String> INVOICE_AWARE_MODELS = Set.of("invoice_aware_ml", "ensemble_ml");
 
     private final FinancialReportService financialReportService;
     private final ForecastClient forecastClient;
@@ -51,8 +60,21 @@ public class ForecastService {
                 .map(day -> new PythonHistoryEntry(day.date(), MoneyCodec.format(day.closingBalance())))
                 .toList();
 
+        List<PythonOpenInvoice> openInvoices = null;
+        if (INVOICE_AWARE_MODELS.contains(model)) {
+            InvoiceSummary invoiceSummary = financialReportService.invoiceSummary(smeId, endDate);
+            openInvoices = invoiceSummary.invoices().stream()
+                    .filter(position -> position.effectiveStatus() != PaymentStatus.CANCELLED
+                            && position.outstanding().signum() > 0)
+                    .map(position -> new PythonOpenInvoice(
+                            position.direction().name(),
+                            position.dueDate(),
+                            MoneyCodec.format(position.outstanding())))
+                    .toList();
+        }
+
         PythonForecastResponse downstream = forecastClient.forecast(
-                new PythonForecastRequest(validatedCurrency, history, horizons, model));
+                new PythonForecastRequest(validatedCurrency, history, horizons, model, openInvoices));
 
         return toSmeForecastResponse(smeId, openingDate, parsedOpeningAmount, endDate, downstream);
     }
@@ -96,7 +118,7 @@ public class ForecastService {
         String trimmed = raw.trim();
         if (!ALLOWED_MODELS.contains(trimmed)) {
             throw new IllegalArgumentException(
-                    "Unsupported forecast model; allowed values: drift_calendar, ridge_lag_calendar, naive");
+                    "Unsupported forecast model; allowed values: drift_calendar, ridge_lag_calendar, naive, gbdt_direct, invoice_aware_ml, ensemble_ml");
         }
         return trimmed;
     }
@@ -118,7 +140,11 @@ public class ForecastService {
                 pm.description(),
                 pm.intervalMethod(),
                 pm.minHistoryDays(),
-                pm.residualWindowMax());
+                pm.residualWindowMax(),
+                pm.usesOpenInvoices(),
+                pm.openInvoiceCount(),
+                pm.activeMembers(),
+                pm.ensembleWeights());
 
         List<HorizonForecast> forecasts = downstream.forecasts().stream()
                 .map(ForecastService::toHorizonForecast)

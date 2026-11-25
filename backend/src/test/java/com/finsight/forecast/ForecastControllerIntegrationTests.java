@@ -6,6 +6,7 @@ import com.finsight.api.DownstreamServiceException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -297,5 +298,245 @@ class ForecastControllerIntegrationTests extends PostgresTestSupport {
                 .andExpect(jsonPath("$.error").value("FORECAST_SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.message").value("Forecasting service is unavailable or timed out"))
                 .andExpect(jsonPath("$.path").value("/api/smes/" + smeId + "/forecast"));
+    }
+
+    @Test
+    void sendsPointInTimeOpenInvoicesForInvoiceAwareAndEnsembleModelsAndMapsCm2Metadata() throws Exception {
+        // 1) Unpaid open inflow invoice issued <= endDate (2024-01-03) -> included with 1000.00
+        insertInvoice("INV-OPEN-IN", "INFLOW", "1000.00", "UNPAID",
+                LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 15));
+
+        // 2) Partially paid outflow invoice as of 2024-01-03, with a future payment on 2024-01-04
+        //    Future payment MUST be ignored as of endDate=2024-01-03 -> outstanding = 350.00
+        long partialId = insertInvoice("INV-PARTIAL-OUT", "OUTFLOW", "500.00", "PAID",
+                LocalDate.of(2024, 1, 2), LocalDate.of(2024, 1, 20));
+        insertLinkedTransaction(partialId, LocalDate.of(2024, 1, 3), "OUTFLOW", "SUPPLIER_PAYMENT", "150.00");
+        insertLinkedTransaction(partialId, LocalDate.of(2024, 1, 4), "OUTFLOW", "SUPPLIER_PAYMENT", "350.00");
+
+        // 3) Cancelled invoice -> excluded
+        insertInvoice("INV-CANCELLED", "INFLOW", "750.00", "CANCELLED",
+                LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 10));
+
+        // 4) Fully paid invoice as of 2024-01-03 -> excluded
+        long paidId = insertInvoice("INV-PAID", "INFLOW", "200.00", "PAID",
+                LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 12));
+        insertLinkedTransaction(paidId, LocalDate.of(2024, 1, 2), "INFLOW", "CUSTOMER_RECEIPT", "200.00");
+
+        // 5) Future invoice issued after endDate (2024-01-04 > 2024-01-03) -> excluded
+        insertInvoice("INV-FUTURE", "INFLOW", "999.00", "UNPAID",
+                LocalDate.of(2024, 1, 4), LocalDate.of(2024, 1, 25));
+
+        List<PythonOpenInvoice> expectedOpenInvoices = List.of(
+                new PythonOpenInvoice("INFLOW", LocalDate.of(2024, 1, 15), "1000.00"),
+                new PythonOpenInvoice("OUTFLOW", LocalDate.of(2024, 1, 20), "350.00"));
+
+        PythonForecastResponse invoiceAwareDownstream = new PythonForecastResponse(
+                "USD",
+                LocalDate.of(2024, 1, 3),
+                LocalDate.of(2024, 1, 1),
+                3,
+                new PythonModelMetadata(
+                        "invoice_aware_ml",
+                        "CM2",
+                        "Invoice-aware ML model",
+                        "split_conformal_past_rolling_residuals",
+                        139,
+                        180,
+                        true,
+                        2,
+                        null,
+                        null),
+                List.of(
+                        new PythonHorizonForecast(
+                                7,
+                                LocalDate.of(2024, 1, 10),
+                                "5550.00",
+                                new PythonIntervalBounds("5250.00", "5850.00"),
+                                new PythonIntervalBounds("5000.00", "6100.00"),
+                                90)),
+                "Conditional mathematical estimates.");
+
+        when(forecastClient.forecast(any())).thenReturn(invoiceAwareDownstream);
+
+        mockMvc.perform(get("/api/smes/{smeId}/forecast", smeId)
+                        .param("openingDate", "2024-01-01")
+                        .param("openingAmount", "5000.00")
+                        .param("currency", "USD")
+                        .param("endDate", "2024-01-03")
+                        .param("horizons", "7")
+                        .param("model", "invoice_aware_ml"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.model.name").value("invoice_aware_ml"))
+                .andExpect(jsonPath("$.model.version").value("CM2"))
+                .andExpect(jsonPath("$.model.usesOpenInvoices").value(true))
+                .andExpect(jsonPath("$.model.openInvoiceCount").value(2))
+                .andExpect(jsonPath("$.model.activeMembers").doesNotExist())
+                .andExpect(jsonPath("$.model.ensembleWeights").doesNotExist());
+
+        PythonForecastResponse ensembleDownstream = new PythonForecastResponse(
+                "USD",
+                LocalDate.of(2024, 1, 3),
+                LocalDate.of(2024, 1, 1),
+                3,
+                new PythonModelMetadata(
+                        "ensemble_ml",
+                        "CM2",
+                        "Weighted ensemble ML model",
+                        "split_conformal_past_rolling_residuals",
+                        139,
+                        180,
+                        true,
+                        2,
+                        List.of("drift_calendar", "gbdt_direct", "invoice_aware_ml"),
+                        Map.of("7", Map.of("drift_calendar", 0.25, "gbdt_direct", 0.35, "invoice_aware_ml", 0.40))),
+                List.of(
+                        new PythonHorizonForecast(
+                                7,
+                                LocalDate.of(2024, 1, 10),
+                                "5450.00",
+                                new PythonIntervalBounds("5150.00", "5750.00"),
+                                new PythonIntervalBounds("4900.00", "6000.00"),
+                                90)),
+                "Conditional mathematical estimates.");
+
+        when(forecastClient.forecast(any())).thenReturn(ensembleDownstream);
+
+        mockMvc.perform(get("/api/smes/{smeId}/forecast", smeId)
+                        .param("openingDate", "2024-01-01")
+                        .param("openingAmount", "5000.00")
+                        .param("currency", "USD")
+                        .param("endDate", "2024-01-03")
+                        .param("horizons", "7")
+                        .param("model", "ensemble_ml"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.model.name").value("ensemble_ml"))
+                .andExpect(jsonPath("$.model.version").value("CM2"))
+                .andExpect(jsonPath("$.model.usesOpenInvoices").value(true))
+                .andExpect(jsonPath("$.model.openInvoiceCount").value(2))
+                .andExpect(jsonPath("$.model.activeMembers[0]").value("drift_calendar"))
+                .andExpect(jsonPath("$.model.activeMembers[1]").value("gbdt_direct"))
+                .andExpect(jsonPath("$.model.activeMembers[2]").value("invoice_aware_ml"))
+                .andExpect(jsonPath("$.model.ensembleWeights['7'].drift_calendar").value(0.25))
+                .andExpect(jsonPath("$.model.ensembleWeights['7'].gbdt_direct").value(0.35))
+                .andExpect(jsonPath("$.model.ensembleWeights['7'].invoice_aware_ml").value(0.40));
+
+        ArgumentCaptor<PythonForecastRequest> captor = ArgumentCaptor.forClass(PythonForecastRequest.class);
+        verify(forecastClient, times(2)).forecast(captor.capture());
+        List<PythonForecastRequest> requests = captor.getAllValues();
+        assertEquals("invoice_aware_ml", requests.get(0).model());
+        assertEquals(expectedOpenInvoices, requests.get(0).openInvoices());
+        assertEquals("ensemble_ml", requests.get(1).model());
+        assertEquals(expectedOpenInvoices, requests.get(1).openInvoices());
+    }
+
+    @Test
+    void sendsEmptyOpenInvoicesListWhenNoneAreOpenAndNullForGbdtDirect() throws Exception {
+        PythonForecastResponse invoiceAwareDownstream = new PythonForecastResponse(
+                "USD",
+                LocalDate.of(2024, 1, 3),
+                LocalDate.of(2024, 1, 1),
+                3,
+                new PythonModelMetadata(
+                        "invoice_aware_ml",
+                        "CM2",
+                        "Invoice-aware ML model",
+                        "split_conformal_past_rolling_residuals",
+                        139,
+                        180,
+                        true,
+                        0,
+                        null,
+                        null),
+                List.of(
+                        new PythonHorizonForecast(
+                                7,
+                                LocalDate.of(2024, 1, 10),
+                                "5100.50",
+                                new PythonIntervalBounds("4900.00", "5300.00"),
+                                new PythonIntervalBounds("4700.00", "5500.00"),
+                                90)),
+                "Conditional mathematical estimates.");
+
+        when(forecastClient.forecast(any())).thenReturn(invoiceAwareDownstream);
+
+        mockMvc.perform(get("/api/smes/{smeId}/forecast", smeId)
+                        .param("openingDate", "2024-01-01")
+                        .param("openingAmount", "5000.00")
+                        .param("currency", "USD")
+                        .param("endDate", "2024-01-03")
+                        .param("horizons", "7")
+                        .param("model", "invoice_aware_ml"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.model.usesOpenInvoices").value(true))
+                .andExpect(jsonPath("$.model.openInvoiceCount").value(0));
+
+        PythonForecastResponse gbdtDownstream = new PythonForecastResponse(
+                "USD",
+                LocalDate.of(2024, 1, 3),
+                LocalDate.of(2024, 1, 1),
+                3,
+                new PythonModelMetadata(
+                        "gbdt_direct",
+                        "CM2",
+                        "GBDT direct model",
+                        "split_conformal_past_rolling_residuals",
+                        139,
+                        180),
+                List.of(
+                        new PythonHorizonForecast(
+                                7,
+                                LocalDate.of(2024, 1, 10),
+                                "5120.00",
+                                new PythonIntervalBounds("4920.00", "5320.00"),
+                                new PythonIntervalBounds("4720.00", "5520.00"),
+                                90)),
+                "Conditional mathematical estimates.");
+
+        when(forecastClient.forecast(any())).thenReturn(gbdtDownstream);
+
+        mockMvc.perform(get("/api/smes/{smeId}/forecast", smeId)
+                        .param("openingDate", "2024-01-01")
+                        .param("openingAmount", "5000.00")
+                        .param("currency", "USD")
+                        .param("endDate", "2024-01-03")
+                        .param("horizons", "7")
+                        .param("model", "gbdt_direct"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.model.name").value("gbdt_direct"))
+                .andExpect(jsonPath("$.model.version").value("CM2"))
+                .andExpect(jsonPath("$.model.usesOpenInvoices").value(false));
+
+        ArgumentCaptor<PythonForecastRequest> captor = ArgumentCaptor.forClass(PythonForecastRequest.class);
+        verify(forecastClient, times(2)).forecast(captor.capture());
+        List<PythonForecastRequest> requests = captor.getAllValues();
+        assertEquals(List.of(), requests.get(0).openInvoices());
+        assertNotNull(requests.get(0).openInvoices());
+        assertEquals("gbdt_direct", requests.get(1).model());
+        assertNull(requests.get(1).openInvoices());
+    }
+
+    private long insertInvoice(
+            String reference,
+            String direction,
+            String amount,
+            String paymentStatus,
+            LocalDate issueDate,
+            LocalDate dueDate) {
+        return jdbc.queryForObject("""
+                INSERT INTO invoices(sme_id, currency, reference, direction, amount, payment_status, issue_date, due_date)
+                VALUES (?, 'USD', ?, ?, ?::numeric, ?, ?, ?) RETURNING id
+                """, Long.class, smeId, reference, direction, amount, paymentStatus, issueDate, dueDate);
+    }
+
+    private void insertLinkedTransaction(
+            long invoiceId,
+            LocalDate bookedDate,
+            String direction,
+            String type,
+            String amount) {
+        jdbc.update("""
+                INSERT INTO financial_transactions(sme_id, currency, invoice_id, booked_date, direction, transaction_type, amount)
+                VALUES (?, 'USD', ?, ?, ?, ?, ?::numeric)
+                """, smeId, invoiceId, bookedDate, direction, type, amount);
     }
 }

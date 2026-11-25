@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiClientError,
+  FORECAST_MODELS,
   createScenario,
+  formatEnsembleWeightsSummary,
   getCashFlow,
+  getEnsembleWeightRows,
   getForecast,
   getFriendlyErrorMessage,
   getInvoiceSummary,
@@ -171,4 +174,52 @@ describe('finsightApi endpoints and error handling', () => {
       expect(getFriendlyErrorMessage(caught)).toMatch(friendlyMatch);
     },
   );
+
+  it('exports all 6 CM1 and CM2 FORECAST_MODELS with expected metadata', () => {
+    expect(FORECAST_MODELS.map((m) => m.id)).toEqual([
+      'ensemble_ml',
+      'invoice_aware_ml',
+      'gbdt_direct',
+      'drift_calendar',
+      'ridge_lag_calendar',
+      'naive',
+    ]);
+    expect(FORECAST_MODELS.filter((m) => m.version === 'CM2')).toHaveLength(3);
+    expect(FORECAST_MODELS.filter((m) => m.invoiceAware).map((m) => m.id)).toEqual([
+      'ensemble_ml',
+      'invoice_aware_ml',
+    ]);
+    expect(FORECAST_MODELS.filter((m) => m.ml).map((m) => m.id)).toEqual([
+      'ensemble_ml',
+      'invoice_aware_ml',
+      'gbdt_direct',
+    ]);
+  });
+
+  it('keeps drift_calendar as getForecast default model and formats ensemble weights', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockJsonResponse({ smeId: 1, forecasts: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getForecast(1, {
+      openingDate: '2024-01-01',
+      openingAmount: '5000.00',
+      currency: 'USD',
+      endDate: '2024-12-31',
+    });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('model=drift_calendar');
+
+    const weights = {
+      30: { drift_calendar: 0.25, invoice_aware_ml: 0.75 },
+      7: { drift_calendar: 0.4, invoice_aware_ml: 0.6 },
+    };
+    const rows = getEnsembleWeightRows(weights);
+    expect(rows.map((r) => r.horizon)).toEqual(['7', '30']);
+    expect(rows[0].members[0].percentText).toBe('40.0%');
+    expect(formatEnsembleWeightsSummary(weights)).toBe(
+      '+7d: drift_calendar 40.0%, invoice_aware_ml 60.0% | +30d: drift_calendar 25.0%, invoice_aware_ml 75.0%',
+    );
+    expect(formatEnsembleWeightsSummary(null)).toBeNull();
+  });
 });

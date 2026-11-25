@@ -1,3 +1,90 @@
+export const FORECAST_MODELS = [
+  {
+    id: 'ensemble_ml',
+    label: 'Weighted Ensemble ML (CM2 — Invoice-Aware)',
+    shortLabel: 'Ensemble ML (CM2)',
+    version: 'CM2',
+    invoiceAware: true,
+    ml: true,
+  },
+  {
+    id: 'invoice_aware_ml',
+    label: 'Invoice-Aware GBDT + Ridge (CM2)',
+    shortLabel: 'Invoice-Aware ML (CM2)',
+    version: 'CM2',
+    invoiceAware: true,
+    ml: true,
+  },
+  {
+    id: 'gbdt_direct',
+    label: 'Gradient Boosting Direct (CM2)',
+    shortLabel: 'GBDT Direct (CM2)',
+    version: 'CM2',
+    invoiceAware: false,
+    ml: true,
+  },
+  {
+    id: 'drift_calendar',
+    label: 'Drift + Calendar (CM1)',
+    shortLabel: 'Drift + Calendar (CM1)',
+    version: 'CM1',
+    invoiceAware: false,
+    ml: false,
+  },
+  {
+    id: 'ridge_lag_calendar',
+    label: 'Ridge Lag + Calendar (CM1)',
+    shortLabel: 'Ridge + Calendar (CM1)',
+    version: 'CM1',
+    invoiceAware: false,
+    ml: false,
+  },
+  {
+    id: 'naive',
+    label: 'Naïve Persistence',
+    shortLabel: 'Naïve',
+    version: 'CM1',
+    invoiceAware: false,
+    ml: false,
+  },
+];
+
+/**
+ * Normalizes per-horizon ensemble weights into sorted rows with formatted percentages.
+ */
+export function getEnsembleWeightRows(ensembleWeights) {
+  if (!ensembleWeights || typeof ensembleWeights !== 'object') {
+    return [];
+  }
+  return Object.entries(ensembleWeights)
+    .sort(([hA], [hB]) => Number(hA) - Number(hB))
+    .map(([horizon, weights]) => {
+      const members = Object.entries(weights || {})
+        .filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+        .map(([member, value]) => ({
+          member,
+          weight: value,
+          percentText: `${(value * 100).toFixed(1)}%`,
+        }));
+      return { horizon: String(horizon), members };
+    })
+    .filter((row) => row.members.length > 0);
+}
+
+/**
+ * Formats per-horizon ensemble weights into a single compact text summary.
+ */
+export function formatEnsembleWeightsSummary(ensembleWeights) {
+  const rows = getEnsembleWeightRows(ensembleWeights);
+  if (rows.length === 0) return null;
+  return rows
+    .map(
+      (row) =>
+        `+${row.horizon}d: ${row.members.map((m) => `${m.member} ${m.percentText}`).join(', ')}`,
+    )
+    .join(' | ');
+}
+
 export const CASH_FLOW_DISCLAIMER =
   'Conditional arithmetic roll-forward based strictly on the caller-supplied opening balance and recorded ledger movements. Does not invent receipts, mutate ledger records, or constitute a solvency proof.';
 
