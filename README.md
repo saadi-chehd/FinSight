@@ -1,28 +1,37 @@
 # FinSight + BankPilot
 
-University graduation project by two equal collaborators. The backend includes PostgreSQL persistence and a deterministic financial calculation engine. React still displays only foundation health status, and Python still exposes only health/docs.
+University graduation project by two equal collaborators. The application pairs a Spring Boot + PostgreSQL deterministic financial calculation and scenario engine with a Python FastAPI forecasting service (`CM1` models + split-conformal intervals) and an interactive React 19 + Vite **FinSight + BankPilot** dashboard.
 
-Daily cash-flow roll-forwards, invoice summaries, and configurable daily liquidity warnings are available as internal Java methods. An explicitly generated, labelled synthetic dataset is available for three fictional SMEs. An offline naïve/weekly closing-cash baseline experiment is available. No scenario execution, advanced ML, dashboards, financial HTTP APIs, or loan decisions are implemented.
+## Implemented Capabilities
+
+- **Deterministic Financial Engine & Read APIs (Java / PostgreSQL):** Daily cash-flow roll-forwards with explicit opening cash (`openingDate`, `openingAmount`, `currency`, `endDate`), configurable `LIQUIDITY_WARNING_THRESHOLD`, invoice settlement & overdue aging (`INFLOW` receivables and `OUTFLOW` payables kept separate, never silently netted, with `statusMismatch` detection), and recorded transactions ledger queries.
+- **Scenario Engine & Simulation APIs (Java):** Persistent `BASELINE`, `LATE_PAYMENT`, and `NEW_CONTRACT` scenario CRUD plus read-only `REPEATABLE_READ` simulations comparing baseline vs. scenario closing cash and liquidity warnings without mutating ledger records.
+- **Cash-Flow Forecasting (`CM1`) & Bridge (Python + Java):** FastAPI `POST /forecast` service implementing `drift_calendar`, `ridge_lag_calendar`, and `naive` models with empirical 80% and 95% split-conformal prediction intervals over rolling past residuals, exposed through the Java `GET /api/smes/{smeId}/forecast` bridge.
+- **Interactive React Dashboard (`FinSight + BankPilot`):**
+  - **FinSight SME Workspace:** Live backend/database health indicators, explicit opening-cash controls (never silently defaulted to `0.00`, with a clearly labelled one-click FS1 synthetic preset), synthetic data provenance banner, `Cash Flow & Forecast` view (KPIs, interactive daily balance + 80%/95% conformal interval chart, model/horizon diagnostics, roll-forward table + CSV export), `Invoices & Ledger` view (side-by-side receivables/payables cards, 6-bucket aging table, status-mismatch & overdue filtering, transactions ledger + CSV export), and `Scenario Simulator` view (create/delete/simulate scenarios with dual-line comparison chart and daily deltas).
+  - **BankPilot Analyst Review:** Human-governed portfolio comparison across SMEs with per-row explicit opening cash inputs, audited liquidity/overdue/forecast indicators, clickable Review Dossier with calculation provenance, analyst checklist & notes, printable/exportable Markdown brief, and an explicit governance boundary (no automated credit score, default probability, or loan decision).
 
 ## Pinned versions
 
-- Node 22.18.0 / npm 10.9.3; React and React DOM 19.3.1; Vite 8.3.4. Frontend dependencies are locked in `frontend/package-lock.json`.
-- Java 17 (tested with Temurin 17.0.10); Spring Boot 4.1.1. Keep Java 17 patched for ongoing development.
+- Node 24 / npm 11 (minimum `^20.19.0 || >=22.12.0`); React and React DOM 19.3.1; Vite 8.3.4; Vitest 5.1.2; `lucide-react` 1.80.0. Frontend dependencies are locked in `frontend/package-lock.json`.
+- Java 17 (tested with Temurin 17.0.10 / JBR 21 targeting Java 17); Spring Boot 4.1.1.
 - Maven Wrapper 3.3.4 downloads Maven 3.10.0. Boot manages Flyway 12.4.0 and PostgreSQL JDBC 42.7.13.
 - PostgreSQL 18.6, installed through Homebrew as `postgresql@18` (formula revision 18.6_1). No Docker is required.
 - Python 3.14.0; FastAPI 0.143.5 / Uvicorn 0.54.0; resolved runtime dependencies in `forecasting/requirements.txt`.
 
-## Financial calculation rules
+## Financial calculation & governance rules
 
-Opening cash is a required dated Java input in the SME's currency. Daily closing equals opening plus recorded inflows minus recorded outflows; both date boundaries are inclusive. Invoice summaries use linked payments through an explicit as-of date, while overdue uses the due date. Neither invoices nor scenario assumptions are automatically converted into cash movements.
+- **Explicit opening cash:** Opening cash is a mandatory dated input in the SME's currency and is never silently defaulted to `0.00`. Daily closing equals opening plus recorded inflows minus recorded outflows; both date boundaries are inclusive.
+- **Exact 2-decimal monetary precision:** Monetary inputs and outputs use exact 2-decimal strings (`BigDecimal` / `NUMERIC(19,2)` on backend, `BigInt` minor-unit math in frontend), rejecting fractional minor units (`> 2` decimal places).
+- **Invoice & scenario separation:** Invoice summaries use linked payments through an explicit as-of date, while overdue uses the due date. Neither invoices nor scenario assumptions mutate stored ledger movements.
+- **Configurable liquidity rule:** `LIQUIDITY_WARNING_THRESHOLD` defaults to `0.00` and warns strictly below the buffer (`POTENTIAL_CASH_SHORTFALL` when negative, `BELOW_CONFIGURED_BUFFER` otherwise); `FINANCIAL_MAX_REPORT_DAYS` defaults to `3660`.
+- **Conditional-analysis & BankPilot boundary:** Cash-flow reports, scenario simulations, and forecasts are conditional mathematical tools, not solvency proofs or lending decisions. BankPilot serves strictly as a human-governed financial review interface.
 
-`LIQUIDITY_WARNING_THRESHOLD` defaults to `0.00` and warns strictly below the buffer; `FINANCIAL_MAX_REPORT_DAYS` defaults to 3660. These optional environment settings are documented in `.env.example`; existing `.env` is preserved. No schema change or migration is needed.
-
-See [formulas, assumptions, and interpretation](docs/financial-engine.md) and [engine verification](docs/financial-engine-verification.md). The engine is inside the existing Java backend; it has no new HTTP routes or UI.
+See [formulas, assumptions, and interpretation](docs/financial-engine.md), [engine verification](docs/financial-engine-verification.md), [API contract](docs/api-contract.md), and [forecasting models (`CM1`)](docs/forecasting-models.md).
 
 ## Synthetic data (manual only)
 
-The default FS1 seed `20261018` covers 2024-01-01 through 2025-12-31: 3 fictional USD SMEs, 942 invoices, 2514 transactions (932 linked payments), 3 dated opening inputs, and 2193 daily rows. It is synthetic software exercise data, not evidence of real SME behavior.
+The default FS1 seed `20261018` covers `2024-01-01` through `2025-12-31`: 3 fictional USD SMEs (`FS1-20261018-A`: `5000.00`, `FS1-20261018-B`: `12000.00`, `FS1-20261018-C`: `8000.00`), 942 invoices, 2514 transactions (932 linked payments), 3 dated opening inputs, and 2193 daily rows. It is synthetic software exercise data, not evidence of real SME behavior.
 
 After building the JAR, generate the artifacts and explicitly load/verify with local credentials exported:
 
@@ -32,22 +41,21 @@ After building the JAR, generate the artifacts and explicitly load/verify with l
 ./scripts/synthetic_data.sh verify --seed 20261018
 ```
 
-Generation needs no database. Loading is atomic and reruns verify identical rows without duplication; it refuses inconsistent existing data. No automatic startup seeder, schema change, or extra dependency is added. The default seed is already explicitly loaded on this machine. Openings stay in a dated CSV and are supplied to the financial engine, not inserted as transactions.
+Generation needs no database. Loading is atomic and reruns verify identical rows without duplication; it refuses inconsistent existing data. No automatic startup seeder, schema change, or extra dependency is added. Openings stay in a dated CSV and are supplied explicitly to the financial engine or via the UI's FS1 Synthetic Preset button, not inserted as transactions.
 
-See [synthetic dataset design and limitations](docs/synthetic-data.md), [data artifacts](data/README.md), and [verification](docs/synthetic-data-verification.md). End-of-dataset payment status is not a historical forecasting feature.
+See [synthetic dataset design and limitations](docs/synthetic-data.md), [data artifacts](data/README.md), and [verification](docs/synthetic-data-verification.md).
 
-## Milestone 4: offline cash-flow forecasting baseline
+## Cash-flow forecasting (`CM1`)
 
-The separate Python experiment forecasts each fictional SME's closing cash 7 and 30 calendar days ahead. Initial history is 2024; the holdout is 2025. Both models use 336 common rolling origins per SME (2024-12-31 through 2025-12-01), without future-data inputs, fitting, or scaling.
+The Python service (`forecasting/app/main.py`) exposes `POST /forecast` using `drift_calendar`, `ridge_lag_calendar`, and `naive` models with split-conformal 80% & 95% intervals (`forecasting/experiments/cash_flow_models.py` and `forecasting/experiments/cash_flow_baseline.py`):
 
 ```sh
 forecasting/.venv/bin/python -m unittest discover -s forecasting/tests -v
 forecasting/.venv/bin/python -m forecasting.experiments.cash_flow_baseline
+forecasting/.venv/bin/python -m forecasting.experiments.cash_flow_models
 ```
 
-These commands need no database or third-party experiment packages. Results are under `forecasting/results/fs1-closing-balance-baseline/`; original synthetic files and the financial engine are unchanged. Weekly repetition equals naïve at 7 days and is explicitly recursively extended at 30 days. Its measured 30-day errors were worse than naïve on this synthetic holdout.
-
-See [definitions, exact splits/counts, per-SME metrics, commands, tests, and limitations](docs/forecasting-baseline.md). This host's Intel Java 17 executable could not run; the documented backend verification used an existing native JBR 21 runtime with the Java 17 compilation target preserved. No runtime was installed or permanently reconfigured.
+See [forecasting baseline](docs/forecasting-baseline.md) and [forecasting models (`CM1`)](docs/forecasting-models.md).
 
 ## Database setup
 
@@ -100,14 +108,13 @@ set +a
 java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
 ```
 
-Terminal 2 — Python:
+Terminal 2 — Python (from repository root):
 
 ```sh
 set -a
 source .env
 set +a
-cd forecasting
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port "${FORECAST_PORT:-8000}"
+forecasting/.venv/bin/python -m uvicorn forecasting.app.main:app --host 127.0.0.1 --port "${FORECAST_PORT:-8000}"
 ```
 
 Terminal 3 — React:
@@ -116,7 +123,7 @@ Terminal 3 — React:
 npm --prefix frontend run dev
 ```
 
-Open http://127.0.0.1:5173. Vite proxies `/api` to Java; no browser-side database credentials are used. Ctrl+C stops each application. If ports change, update `.env` and `VITE_BACKEND_TARGET` consistently. `vite preview` serves the static build without the development API proxy.
+Open `http://127.0.0.1:5173`. Vite proxies `/api` to Java; no browser-side database credentials are used. Ctrl+C stops each application. If ports change, update `.env` and `VITE_BACKEND_TARGET` consistently. `vite preview` serves the static build without the development API proxy.
 
 ## Additional checks
 
@@ -124,29 +131,23 @@ With root `.env` exported:
 
 ```sh
 python3 scripts/verify_local_database.py
+npm --prefix frontend test
 npm --prefix frontend run build
+forecasting/.venv/bin/python -m unittest discover -s forecasting/tests -v
 forecasting/.venv/bin/python -m pip check
 python3 scripts/smoke_check.py
 ```
 
-The auth script verifies password enforcement and development/test isolation using local PostgreSQL on port 5432. The smoke check starts all three applications on temporary loopback ports, checks Java liveness, database readiness, Python liveness, Vite → Java proxy, and frontend HTML, then stops only its processes. It can apply pending development migrations. Logs are under ignored `.cache/`.
-
-With applications already running, individual checks are:
-
-```sh
-curl --fail http://127.0.0.1:8080/api/health
-curl --fail http://127.0.0.1:8080/api/health/database
-curl --fail http://127.0.0.1:8000/health
-```
+The auth script verifies password enforcement and development/test isolation using local PostgreSQL on port 5432. The smoke check starts all three applications on temporary loopback ports, checks Java liveness, database readiness, Python liveness, Vite → Java proxy, frontend HTML, SME listing, forecast 404 handling, and live Java → Python forecast bridge, then stops only its processes. Logs are under ignored `.cache/`.
 
 ## Repository
 
-- `frontend/`: React/Vite foundation page.
-- `backend/`: Spring MVC, JDBC persistence, pure financial calculations, Flyway integration, and unit/PostgreSQL tests.
-- `forecasting/`: FastAPI health service plus separate standard-library offline baseline experiment/tests/results; no advanced model libraries installed.
+- `frontend/`: React 19 + Vite FinSight & BankPilot web dashboard and Vitest unit/component tests.
+- `backend/`: Spring MVC, JDBC persistence, pure financial & scenario calculations, forecast bridge, Flyway integration, and unit/PostgreSQL tests.
+- `forecasting/`: FastAPI `/forecast` & `/health` service, `CM1` forecasting models, conformal interval calibration, and offline evaluation experiments/tests.
 - `database/migrations/`: authoritative versioned/repeatable SQL, packaged into the Java JAR.
 - `data/`: clearly labelled synthetic CSVs, opening inputs, checksum manifest, and provenance policy.
-- `scripts/`: local provisioning, authentication verification, and startup smoke checks.
-- `docs/`: [schema](docs/database-schema.md), [database operations](docs/database.md), [architecture](docs/architecture.md), [API](docs/api-contract.md), and [database milestone verification](docs/database-verification.md).
+- `scripts/`: local provisioning, authentication verification, synthetic data CLI, and startup smoke checks.
+- `docs/`: [schema](docs/database-schema.md), [database operations](docs/database.md), [architecture](docs/architecture.md), [API contract](docs/api-contract.md), [financial engine](docs/financial-engine.md), and [forecasting models](docs/forecasting-models.md).
 
-Both collaborators rotate implementation and review across components. Git remains on `main` with no commit or remote. Do not commit `.env`, databases, dependencies, or logs. The next milestone requires review and approval.
+Both collaborators rotate implementation and review across components. Work happens on `main` synced with `origin/main` (`saadi-chehd/FinSight`). Do not commit `.env`, databases, dependencies, or logs.
